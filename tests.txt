@@ -51,3 +51,20 @@ Basic build and smoke tests
 
 11) Exit
 - exit
+
+12) Complex combinations (builtins + execvp)
+- ls | head -n 2
+- ls -l | head -n 1
+- ls -a | wc -l
+- pwd | wc -c
+- echo hello | wc -c
+- echo data > /tmp/nshell_combo.txt
+- cat /tmp/nshell_combo.txt | tr a-z A-Z
+- ls -l >> /tmp/nshell_combo.txt | head -n 1
+- cat /tmp/nshell_combo.txt | head -n 2
+
+13) Mixed redirection and pipelines
+- cat < /etc/hostname | wc -c
+- ls | wc -l > /tmp/nshell_count.txt
+- cat /tmp/nshell_count.txt
+- rm -f /tmp/nshell_combo.txt /tmp/nshell_count.txt

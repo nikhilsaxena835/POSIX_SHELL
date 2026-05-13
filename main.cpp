@@ -9,7 +9,7 @@
 #include <glob.h>
 #include "getInfo.h"
 #include <sys/wait.h>
-#include "commandCentre.h"
+#include "CommandRegistry.h"
 #include "cd.h"
 #include "echos.h"
 #include "history.h"
@@ -27,6 +27,7 @@ using namespace std;
 string zero = " \t\r\n\a";
 char *delim = (char *)zero.c_str();
 ShellContext shellContext;
+CommandRegistry commandRegistry;
 volatile sig_atomic_t sigint_received = 0;
 volatile sig_atomic_t sigtstp_received = 0;
 volatile sig_atomic_t sigchld_received = 0;
@@ -263,6 +264,7 @@ bool hasPipes(const string &input) {
 void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bool background,
                         DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir,
                         ShellContext &context) {
+    (void)home_dir;
     int shell_in = dup(0);
     int shell_out = dup(1);
 
@@ -311,16 +313,16 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
             _exit(EXIT_FAILURE);
         }
 
-        vector<char *> argv = buildArgv(cleaned);
-        char **com = argv.data();
-        int count = cleaned.size();
-        if (piped == 1 || isMyCommand(com[0]) == -1) {
-            if (execvp(com[0], com) == -1) {
+        ICommand* cmd = commandRegistry.lookup(cleaned[0]);
+        if (piped || !cmd) {
+            vector<char *> argv = buildArgv(cleaned);
+            if (execvp(argv[0], argv.data()) == -1) {
                 perror("execvp");
                 _exit(EXIT_FAILURE);
             }
         } else {
-            executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, context, count);
+            ExecContext exec{cleaned, &curr, &prev, &currD, &prevD};
+            cmd->execute(context, exec);
             cout.flush();
             cerr.flush();
             fflush(nullptr);
@@ -349,6 +351,7 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
 void handleRedirectionswithPipe(const vector<string> &command,
                           DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir,
                           ShellContext &context) {
+    (void)home_dir;
 
     int file_descriptor;
     vector<string> cleaned;
@@ -387,20 +390,20 @@ void handleRedirectionswithPipe(const vector<string> &command,
         _exit(EXIT_FAILURE);
     }
 
-    vector<char *> argv = buildArgv(cleaned);
-    char **com = argv.data();
-    int count = cleaned.size();
-    if (strcmp(com[0], "exit") == 0) {
+    if (cleaned[0] == "exit") {
         _exit(EXIT_SUCCESS);
     }
-    if (isMyCommand(com[0]) != -1) {
-        executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, context, count);
+    ICommand* cmd = commandRegistry.lookup(cleaned[0]);
+    if (cmd) {
+        ExecContext exec{cleaned, &curr, &prev, &currD, &prevD};
+        cmd->execute(context, exec);
         cout.flush();
         cerr.flush();
         fflush(nullptr);
         _exit(EXIT_SUCCESS);
     }
-    if (execvp(com[0], com) == -1) {
+    vector<char *> argv = buildArgv(cleaned);
+    if (execvp(argv[0], argv.data()) == -1) {
         perror("execvp");
         _exit(EXIT_FAILURE);
     }
@@ -513,6 +516,7 @@ int main() {
     get_name(system_name, home_dir, username);
 
     send_signal();
+    commandRegistry.registerDefaults();
 
     string print_dir;
     string curr_directory = home_dir;
@@ -547,20 +551,18 @@ int main() {
             if(tokenized[0] == "exit") {
                 exit(EXIT_SUCCESS);
             }
-            if(tokenized[0] == "pinfo") {
-                if(tokenized.size() < 2) {
+
+            // Handle builtins that must run in the parent process
+            ICommand* cmd = commandRegistry.lookup(tokenized[0]);
+            if (cmd && (tokenized[0] == "cd" || tokenized[0] == "pinfo")) {
+                if (tokenized[0] == "pinfo" && tokenized.size() < 2) {
                     tokenized.push_back("0");
                 }
-                getPInfor(atoi(tokenized[1].c_str()));
+                ExecContext exec{tokenized, &curr, &prev, &curr_directory, &prev_directory};
+                cmd->execute(shellContext, exec);
                 continue;
             }
 
-            if(tokenized[0] == "cd") {
-                vector<char *> com = buildArgv(tokenized);
-                int count = tokenized.size();
-                executeCommand(isMyCommand(com[0]), com[1], curr, prev, curr_directory, prev_directory, com.data(), home_dir, shellContext, count);
-                continue;
-            }
             bool background = stripBackgroundToken(tokenized);
             if (tokenized.empty()) {
                 continue;

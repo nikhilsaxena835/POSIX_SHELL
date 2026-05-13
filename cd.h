@@ -4,5 +4,7 @@
 
 #ifndef CD_H
 #define CD_H
-int changeDirectory(const string& cmd, DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir);
+#include <string>
+#include <dirent.h>
+int changeDirectory(const std::string& cmd, DIR *curr, DIR *prev, std::string &currD, std::string &prevD, const std::string &home_dir);
 #endif //CD_H
