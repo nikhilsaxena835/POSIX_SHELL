@@ -16,7 +16,6 @@
 #include <grp.h>
 
 using namespace std;
-string home_directory;
 
 const int BUF_SIZE = 1024;
 void onlyLS() {
@@ -35,14 +34,14 @@ void onlyLS() {
         }
     }
 
-void minusA(const char* dirname) {
+void minusA(const char* dirname, const string &home_dir) {
     char buf[100];
     getcwd(buf, 100);
     DIR *dir;
     if(dirname == NULL)
     dir = opendir(".");
     else {
-        if(strcmp(dirname, "~") == 0) dirname = home_directory.c_str();
+        if(strcmp(dirname, "~") == 0) dirname = home_dir.c_str();
         dir = opendir(dirname);
     }
     if (dir == NULL) {
@@ -56,10 +55,10 @@ void minusA(const char* dirname) {
     }
 }
 
-void dirLS(const char *dirname) {
+void dirLS(const char *dirname, const string &home_dir) {
     char buf[100];
     getcwd(buf, 100);
-    if(strcmp(dirname, "~") == 0) dirname = home_directory.c_str();
+    if(strcmp(dirname, "~") == 0) dirname = home_dir.c_str();
     DIR *dir = opendir(dirname);
     if (dir == NULL) {
         cout << "Failed to open directory. Check Path\n";
@@ -73,7 +72,7 @@ void dirLS(const char *dirname) {
     }
 }
 
-void minusL(const char *dirname) {
+void minusL(const char *dirname, const string &home_dir) {
     int blcks = 0;
     char buf[BUF_SIZE];
     string p;
@@ -86,7 +85,7 @@ void minusL(const char *dirname) {
     }
 
     else {
-        if(strcmp(dirname, "~") == 0) dirname = home_directory.c_str();
+        if(strcmp(dirname, "~") == 0) dirname = home_dir.c_str();
         dir = opendir(dirname);
         dir2 = opendir(dirname);
     }
@@ -148,7 +147,7 @@ void minusL(const char *dirname) {
     closedir(dir);
 }
 
-void minusAL(const char* dirname) {
+void minusAL(const char* dirname, const string &home_dir) {
     int blcks = 0;
     char buf[BUF_SIZE];
     string p;
@@ -159,7 +158,7 @@ void minusAL(const char* dirname) {
         dir2 = opendir(".");
     }
     else {
-        if(strcmp(dirname, "~") == 0) dirname = home_directory.c_str();
+        if(strcmp(dirname, "~") == 0) dirname = home_dir.c_str();
         dir = opendir(dirname);
         dir2 = opendir(dirname);
     }
@@ -228,7 +227,6 @@ void minusAL(const char* dirname) {
 
 
 void lsMain(char* args[], string home_dir) {
-    home_directory = home_dir;
     int i = 0, j = 0;
     vector<char*> flags;  // Store flags for reuse with each directory
 
@@ -255,7 +253,7 @@ void lsMain(char* args[], string home_dir) {
 
             atomic_ls[k++] = args[i];
             atomic_ls[command_length] = nullptr; // Null-terminate the array
-            lsInitiate(atomic_ls, command_length);
+            lsInitiate(atomic_ls, command_length, home_dir);
             flags.clear();
 
             j = i + 1; // Move the start index for the next command
@@ -280,35 +278,35 @@ void lsMain(char* args[], string home_dir) {
         atomic_ls[command_length] = nullptr;  // Null-terminate the array
 
         // Call the function to execute the ls command
-        lsInitiate(atomic_ls, command_length);
+        lsInitiate(atomic_ls, command_length, home_dir);
     }
 }
 
-void lsInitiate(char * args[], int count) {
+void lsInitiate(char * args[], int count, const string &home_dir) {
 
     if(count == 1 || (strcmp(args[1], ".") == 0)) {
         onlyLS();
     }
     else if(strcmp(args[1], "-la") == 0 || strcmp(args[1], "-al") == 0) {
-        minusAL(args[2]);
+        minusAL(args[2], home_dir);
     }
 
     else if(count > 2 &&
         (strcmp(args[1], "-l") == 0 && strcmp(args[2], "-a") == 0||
         strcmp(args[2], "-l") == 0 && strcmp(args[1], "-a") == 0)) {
-            minusAL(args[3]);
+            minusAL(args[3], home_dir);
         }
 
     else if(strcmp(args[1], "-a") == 0) {
-       minusA(args[2]);
+       minusA(args[2], home_dir);
     }
 
     else if(strcmp(args[1], "-l") == 0) {
-        minusL(args[2]);
+        minusL(args[2], home_dir);
     }
 
     else {
-        dirLS(args[1]);
+        dirLS(args[1], home_dir);
     }
 
 }

@@ -17,6 +17,7 @@
 #include "search.h"
 #include "pinfo.h"
 #include "history.h"
+#include "ShellContext.h"
 
 string commandList[] = {"cd","echo","pwd", "ls", "pinfo", "search", "history"};
 
@@ -34,7 +35,7 @@ int isMyCommand(const char * temp) {
 void executeCommand(int index,
     const char *newdir, DIR *curr, DIR *prev, string &currD, string &prevD,
     char** args, const string &home_dir,
-    vector<string> historyStore, int count){
+    ShellContext &context, int count){
 
         int i = 0;
         while(args[i]!= NULL) i++;
@@ -73,7 +74,7 @@ void executeCommand(int index,
             break;
 
             case 3: {
-                lsMain(args, home_dir);
+                lsMain(args, context.homeDir);
             }
             break;
             case 4: {
@@ -95,11 +96,9 @@ void executeCommand(int index,
                     args[1] = (char *)zero.c_str();
 
                     }
-                print_history(historyStore,atoi(args[1]));
+                print_history(context.historyStore,atoi(args[1]));
             }
                 break;
             default : cout<<" Invalid command"<<endl;
         }
     }
-
-

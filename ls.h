@@ -6,10 +6,11 @@
 #define LS_H
 #include <string>
 
-void lsInitiate(char * args[], int count);
+void lsInitiate(char * args[], int count, const std::string &home_dir);
 void onlyLS();
-void minusA();
-void dirLS(const char *dirname);
-void minusAL() ;
+void minusA(const char *dirname, const std::string &home_dir);
+void dirLS(const char *dirname, const std::string &home_dir);
+void minusAL(const char *dirname, const std::string &home_dir);
 void lsMain(char * args[], std::string home_dir);
+void minusL(const char *dirname, const std::string &home_dir);
 #endif //LS_H

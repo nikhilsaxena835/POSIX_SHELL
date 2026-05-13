@@ -20,14 +20,13 @@
 #include <signal.h>
 #include <cctype>
 #include "pinfo.h"
+#include "ShellContext.h"
 
 using namespace std;
 
 string zero = " \t\r\n\a";
 char *delim = (char *)zero.c_str();
-int foregroundPID = -1;
-bool foreground = false;
-vector<string> historyStore;
+ShellContext shellContext;
 volatile sig_atomic_t sigint_received = 0;
 volatile sig_atomic_t sigtstp_received = 0;
 volatile sig_atomic_t sigchld_received = 0;
@@ -68,20 +67,20 @@ void send_signal(){
 void handlePendingSignals() {
     if (sigint_received) {
         sigint_received = 0;
-        if (foregroundPID > 0 && foreground) {
-            kill(foregroundPID, SIGINT);
+        if (shellContext.foregroundPID > 0 && shellContext.foreground) {
+            kill(shellContext.foregroundPID, SIGINT);
         } else {
             cout << "No foreground job to interrupt";
         }
     }
     if (sigtstp_received) {
         sigtstp_received = 0;
-        if (foregroundPID > 0 && foreground) {
-            setpgid(foregroundPID, foregroundPID);
+        if (shellContext.foregroundPID > 0 && shellContext.foreground) {
+            setpgid(shellContext.foregroundPID, shellContext.foregroundPID);
             cout << "Foreground job suspended\n";
-            kill(foregroundPID, SIGSTOP);
-            foregroundPID = -1;
-            foreground = false;
+            kill(shellContext.foregroundPID, SIGSTOP);
+            shellContext.foregroundPID = -1;
+            shellContext.foreground = false;
         } else {
             cout << "No foreground job to suspend";
         }
@@ -237,12 +236,13 @@ bool hasPipes(const string &input) {
 }
 
 void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bool background,
-                        DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir) {
+                        DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir,
+                        ShellContext &context) {
     int shell_in = dup(0);
     int shell_out = dup(1);
 
     int pid = fork();
-    foregroundPID = pid;
+    context.foregroundPID = pid;
     if (pid < 0)
         perror("fork");
 
@@ -296,14 +296,14 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
                 _exit(EXIT_FAILURE);
             }
         } else {
-            executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, historyStore, count);
+            executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, context, count);
         }
         _exit(EXIT_SUCCESS);
 
     } else {
-        setpgid(foregroundPID, foregroundPID);
-        foregroundPID = pid;
-        foreground = true;
+        setpgid(context.foregroundPID, context.foregroundPID);
+        context.foregroundPID = pid;
+        context.foreground = true;
         if (!background)
             waitpid(pid, NULL, WUNTRACED | WCONTINUED);
         else {
@@ -373,9 +373,9 @@ bool isBackground(const string &command) {
 }
 
 void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, string curr_directory, string prev_directory,
-                        string home_dir) {
+                        string home_dir, ShellContext &context) {
     for (int i = 0; i < statements.size(); i++) {
-        add_history(historyStore, const_cast<char *>(statements[i].c_str()));
+        add_history(context.historyStore, const_cast<char *>(statements[i].c_str()));
         vector<string> piped_clear_statements = splitByDelimiter(statements[i], '|');
 
         int in = 0;
@@ -399,7 +399,7 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
                 }
             }
             int pid  = fork();
-            foregroundPID = pid;
+            context.foregroundPID = pid;
             if (pid == -1) {
                 perror("fork failed");
                 exit(EXIT_FAILURE);
@@ -418,7 +418,7 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
                 close(fd[0]);
                 handleRedirectionswithPipe(tokenized, true, false, curr, prev, curr_directory, prev_directory, home_dir);
             } else {
-                foreground = true;
+                context.foreground = true;
                 close(fd[1]);
                 in = fd[0];
                 if(!background) {
@@ -442,11 +442,12 @@ int main() {
     string print_dir;
     string curr_directory = home_dir;
     string prev_directory = home_dir;
+    shellContext.homeDir = home_dir;
 
     DIR *curr = opendir(".");
     DIR *prev = curr;
     DIR *home = curr;
-    history_initiate(historyStore, home_dir);
+    history_initiate(shellContext.historyStore, home_dir);
     do {
         string input = readInputLine();
         handlePendingSignals();
@@ -460,11 +461,11 @@ int main() {
             if (hasPipes(statements[i])) {
                 vector<string> single_statement;
                 single_statement.push_back(statements[i]);
-                execute_statements(single_statement, curr, prev, curr_directory, prev_directory, home_dir);
+                execute_statements(single_statement, curr, prev, curr_directory, prev_directory, home_dir, shellContext);
                 continue;
             }
 
-            add_history(historyStore, const_cast<char *>(statements[i].c_str()));
+            add_history(shellContext.historyStore, const_cast<char *>(statements[i].c_str()));
             vector<string> tokenized = tokenizeLine(statements[i]);
             if (tokenized.empty()) {
                 continue;
@@ -480,12 +481,12 @@ int main() {
             if(tokenized[0] == "cd") {
                 vector<char *> com = buildArgv(tokenized);
                 int count = tokenized.size();
-                executeCommand(isMyCommand(com[0]), com[1], curr, prev, curr_directory, prev_directory, com.data(), home_dir, historyStore, count);
+                executeCommand(isMyCommand(com[0]), com[1], curr, prev, curr_directory, prev_directory, com.data(), home_dir, shellContext, count);
                 continue;
             }
             bool background = isBackground(tokenized[tokenized.size() - 1]);
             handleRedirectionswithoutPipe(tokenized, false, background,
-                               curr, prev, curr_directory, prev_directory, home_dir);
+                               curr, prev, curr_directory, prev_directory, home_dir, shellContext);
         }
 
         // For CD

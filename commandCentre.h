@@ -13,12 +13,13 @@
 #include "getInfo.h"
 #include <sys/wait.h>
 #include <dirent.h>
+#include "ShellContext.h"
 using namespace std;
 int isMyCommand(const char * temp);
 
 void executeCommand(int index,
     const char *newdir, DIR *curr, DIR *prev, string &currD, string &prevD,
     char ** tokenString, const string & home_dir,
-    vector<string> historyStore, int count);
+    ShellContext &context, int count);
 
 #endif //COMMANDCENTRE_H
