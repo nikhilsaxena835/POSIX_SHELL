@@ -19,8 +19,6 @@ using namespace std;
 
 const int BUF_SIZE = 1024;
 void onlyLS() {
-    char buf[100];
-    getcwd(buf, 100);
     DIR *dir = opendir(".");
     if (dir == NULL) {
         cout << "Failed to open directory. Check Path\n";
@@ -32,11 +30,10 @@ void onlyLS() {
         if(temp[0] != '.')
         printf("%s\n", temp);
         }
+    closedir(dir);
     }
 
 void minusA(const char* dirname, const string &home_dir) {
-    char buf[100];
-    getcwd(buf, 100);
     DIR *dir;
     if(dirname == NULL)
     dir = opendir(".");
@@ -53,11 +50,10 @@ void minusA(const char* dirname, const string &home_dir) {
         char *temp = entry->d_name;
         printf("%s\n", temp);
     }
+    closedir(dir);
 }
 
 void dirLS(const char *dirname, const string &home_dir) {
-    char buf[100];
-    getcwd(buf, 100);
     if(strcmp(dirname, "~") == 0) dirname = home_dir.c_str();
     DIR *dir = opendir(dirname);
     if (dir == NULL) {
@@ -70,28 +66,27 @@ void dirLS(const char *dirname, const string &home_dir) {
         if(temp[0] != '.')
         printf("%s\n", temp);
     }
+    closedir(dir);
 }
 
 void minusL(const char *dirname, const string &home_dir) {
     int blcks = 0;
-    char buf[BUF_SIZE];
-    string p;
-    getcwd(buf, BUF_SIZE);
-    DIR *dir, *dir2;
-    if (dirname == NULL) {
-
-        dir = opendir(".");
-        dir2 = opendir(".");
+    string base = ".";
+    if (dirname != NULL) {
+        if(strcmp(dirname, "~") == 0) {
+            base = home_dir;
+        } else {
+            base = dirname;
+        }
     }
 
-    else {
-        if(strcmp(dirname, "~") == 0) dirname = home_dir.c_str();
-        dir = opendir(dirname);
-        dir2 = opendir(dirname);
-    }
+    DIR *dir = opendir(base.c_str());
+    DIR *dir2 = opendir(base.c_str());
 
-    if (dir == NULL) {
+    if (dir == NULL || dir2 == NULL) {
         cout << "Failed to open directory. Check Path\n";
+        if (dir) closedir(dir);
+        if (dir2) closedir(dir2);
         return;
     }
     struct dirent *entry;
@@ -103,17 +98,11 @@ void minusL(const char *dirname, const string &home_dir) {
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_name[0] == '.') continue;
         struct stat sb;
-        string root = buf;
-        if(dirname != NULL) {
-            string target = dirname;
-            p = root + "/" + target + "/"+ entry->d_name;
-            if(target[0] == '/') {
-                p = target;
-            }
+        string p = base;
+        if (!p.empty() && p.back() != '/') {
+            p += "/";
         }
-        else {
-            p = entry->d_name;
-        }
+        p += entry->d_name;
         if (stat(p.c_str(), &sb) == -1) {
             perror("stat");
             continue;
@@ -145,26 +134,27 @@ void minusL(const char *dirname, const string &home_dir) {
         printf("\t%s\n", entry->d_name);
     }
     closedir(dir);
+    closedir(dir2);
 }
 
 void minusAL(const char* dirname, const string &home_dir) {
     int blcks = 0;
-    char buf[BUF_SIZE];
-    string p;
-    getcwd(buf, BUF_SIZE);
-    DIR *dir, *dir2;
-    if (dirname == NULL) {
-        dir = opendir(".");
-        dir2 = opendir(".");
-    }
-    else {
-        if(strcmp(dirname, "~") == 0) dirname = home_dir.c_str();
-        dir = opendir(dirname);
-        dir2 = opendir(dirname);
+    string base = ".";
+    if (dirname != NULL) {
+        if(strcmp(dirname, "~") == 0) {
+            base = home_dir;
+        } else {
+            base = dirname;
+        }
     }
 
-    if (dir == NULL) {
+    DIR *dir = opendir(base.c_str());
+    DIR *dir2 = opendir(base.c_str());
+
+    if (dir == NULL || dir2 == NULL) {
         cout << "Failed to open directory. Check Path\n";
+        if (dir) closedir(dir);
+        if (dir2) closedir(dir2);
         return;
     }
     struct dirent *entry;
@@ -175,17 +165,11 @@ void minusAL(const char* dirname, const string &home_dir) {
     printf("Total %d\n", 4*blcks);
     while ((entry = readdir(dir)) != NULL) {
         struct stat sb;
-        string root = buf;
-        if(dirname != NULL) {
-            string target = dirname;
-            p = root + "/" + target + "/"+ entry->d_name;
-            if(target[0] == '/') {
-                p = target;
-            }
+        string p = base;
+        if (!p.empty() && p.back() != '/') {
+            p += "/";
         }
-        else {
-            p = entry->d_name;
-        }
+        p += entry->d_name;
 
         if (stat(p.c_str(), &sb) == -1) {
             perror("stat");
@@ -223,6 +207,8 @@ void minusAL(const char* dirname, const string &home_dir) {
         printf("\t%s", p);
         printf("\t%s\n", entry->d_name);
     }
+    closedir(dir);
+    closedir(dir2);
 }
 
 
