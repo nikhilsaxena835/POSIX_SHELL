@@ -27,34 +27,21 @@ char *delim = (char *)zero.c_str();
 int foregroundPID = -1;
 bool foreground = false;
 vector<string> historyStore;
+volatile sig_atomic_t sigint_received = 0;
+volatile sig_atomic_t sigtstp_received = 0;
+volatile sig_atomic_t sigchld_received = 0;
 
 
 void CSigHandler(int signo){
-    cout<<"\n"<<foregroundPID<<"\n";
-    if(foregroundPID > 0 && foreground)
-    kill(foregroundPID, SIGINT);
-    else {
-        cout<<"No foreground job to interrupt";
-    }
+    sigint_received = 1;
 }
 
 void ZSigHandler(int signo){
-    cout<<"\n"<<foregroundPID<<"\n";
-
-    if(foregroundPID > 0 && foreground) {
-        setpgid(foregroundPID, foregroundPID);
-        cout<<"Foreground job suspended\n";
-        kill(foregroundPID, SIGSTOP);
-        foregroundPID = -1;
-        foreground = false;
-    }
-    else {
-        cout<<"No foreground job to suspend";
-    }
+    sigtstp_received = 1;
 }
 
 void SIGCHLDHandler(int signo) {
-    while (waitpid(-1, nullptr, WNOHANG) > 0);
+    sigchld_received = 1;
 }
 
 
@@ -64,19 +51,46 @@ void send_signal(){
 
     sa_int.sa_handler = CSigHandler;
     sigemptyset(&sa_int.sa_mask);
-    sa_int.sa_flags = 0;
+    sa_int.sa_flags = SA_RESTART;
     sigaction(SIGINT, &sa_int, nullptr);
 
     sa_tstp.sa_handler = ZSigHandler;
     sigemptyset(&sa_tstp.sa_mask);
-    sa_tstp.sa_flags = 0;
+    sa_tstp.sa_flags = SA_RESTART;
     sigaction(SIGTSTP, &sa_tstp, nullptr);
-/*
     sa_chld.sa_handler = SIGCHLDHandler;
     sigemptyset(&sa_chld.sa_mask);
-    sa_chld.sa_flags = 0;
+    sa_chld.sa_flags = SA_RESTART;
     sigaction(SIGCHLD, &sa_chld, nullptr);
-*/
+}
+
+void handlePendingSignals() {
+    if (sigint_received) {
+        sigint_received = 0;
+        if (foregroundPID > 0 && foreground) {
+            kill(foregroundPID, SIGINT);
+        } else {
+            cout << "No foreground job to interrupt";
+        }
+    }
+    if (sigtstp_received) {
+        sigtstp_received = 0;
+        if (foregroundPID > 0 && foreground) {
+            setpgid(foregroundPID, foregroundPID);
+            cout << "Foreground job suspended\n";
+            kill(foregroundPID, SIGSTOP);
+            foregroundPID = -1;
+            foreground = false;
+        } else {
+            cout << "No foreground job to suspend";
+        }
+    }
+    if (sigchld_received) {
+        sigchld_received = 0;
+        int status = 0;
+        while (waitpid(-1, &status, WNOHANG) > 0) {
+        }
+    }
 }
 
 string readInputLine() {
@@ -396,6 +410,7 @@ int main() {
     history_initiate(historyStore, home_dir);
     do {
         string input = readInputLine();
+        handlePendingSignals();
         vector<char> buffer(input.begin(), input.end());
         buffer.push_back('\0');
         char *buffer_ptr = buffer.data();
