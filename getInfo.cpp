@@ -28,8 +28,14 @@ void get_name(string &systemname, string &home_dir, string &username) {
     username = user->pw_name;
 
     //Get home directory
-    char hbuf[buffer_size];
-    home_dir = getcwd(hbuf, buffer_size);
+    const char *home_env = getenv("HOME");
+    if (home_env != nullptr) {
+        home_dir = home_env;
+    } else if (user != nullptr && user->pw_dir != nullptr) {
+        home_dir = user->pw_dir;
+    } else {
+        char hbuf[buffer_size];
+        home_dir = getcwd(hbuf, buffer_size);
+    }
     nshell_pid = getpid();
 }
-

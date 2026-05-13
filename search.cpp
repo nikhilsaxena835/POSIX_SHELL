@@ -38,12 +38,13 @@ bool recursive_search(char * target) {
 
             string str = p+"/"+entry->d_name;
 
-            if (stat(str.c_str(), &sb) == -1) {
-                perror("stat");
+            if (lstat(str.c_str(), &sb) == -1) {
+                perror("lstat");
                 continue;
             }
             if((S_ISDIR(sb.st_mode)) == true) {
                 if(strcmp(temp, ".")==0 || strcmp(temp, "..")==0) {continue;}
+                if (S_ISLNK(sb.st_mode)) {continue;}
                 s.push(str);
             }
 

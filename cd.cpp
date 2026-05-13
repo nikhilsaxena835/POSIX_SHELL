@@ -21,6 +21,8 @@ using namespace std;
  * . CURR 1
  */
 int changeDirectory(const string& cmd, DIR *curr, DIR *prev, string &currD, string &prevD, const string& home_dir) {
+    (void)curr;
+    (void)prev;
     if(cmd == "~") {
         if (chdir(home_dir.c_str()) != 0) {
             perror("cd");

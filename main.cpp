@@ -33,14 +33,17 @@ volatile sig_atomic_t sigchld_received = 0;
 
 
 void CSigHandler(int signo){
+    (void)signo;
     sigint_received = 1;
 }
 
 void ZSigHandler(int signo){
+    (void)signo;
     sigtstp_received = 1;
 }
 
 void SIGCHLDHandler(int signo) {
+    (void)signo;
     sigchld_received = 1;
 }
 
@@ -113,12 +116,15 @@ bool isAllWhitespace(const string &input) {
 vector<string> splitByDelimiter(const string &input, char delimiter) {
     vector<string> parts;
     string current;
-    bool in_quotes = false;
+    bool in_single = false;
+    bool in_double = false;
     for (char c : input) {
-        if (c == '"') {
-            in_quotes = !in_quotes;
+        if (c == '\'' && !in_double) {
+            in_single = !in_single;
+        } else if (c == '"' && !in_single) {
+            in_double = !in_double;
         }
-        if (!in_quotes && c == delimiter) {
+        if (!in_single && !in_double && c == delimiter) {
             if (!isAllWhitespace(current)) {
                 parts.push_back(current);
             }
@@ -155,13 +161,18 @@ vector<string> splitSimple(const string &input) {
 vector<string> splitWithQuotes(const string &input) {
     vector<string> tokens;
     string current;
-    bool in_quotes = false;
+    bool in_single = false;
+    bool in_double = false;
     for (char c : input) {
-        if (c == '"') {
-            in_quotes = !in_quotes;
+        if (c == '\'' && !in_double) {
+            in_single = !in_single;
             continue;
         }
-        if (!in_quotes && isspace(static_cast<unsigned char>(c))) {
+        if (c == '"' && !in_single) {
+            in_double = !in_double;
+            continue;
+        }
+        if (!in_single && !in_double && isspace(static_cast<unsigned char>(c))) {
             if (!current.empty()) {
                 tokens.push_back(current);
                 current.clear();
@@ -194,12 +205,15 @@ vector<string> tokenizeLine(const string &input) {
     string rest = input.substr(rest_start);
     string message = rest;
     string redir;
-    bool in_quotes = false;
+    bool in_single = false;
+    bool in_double = false;
     for (size_t i = 0; i < rest.size(); ++i) {
-        if (rest[i] == '"') {
-            in_quotes = !in_quotes;
+        if (rest[i] == '\'' && !in_double) {
+            in_single = !in_single;
+        } else if (rest[i] == '"' && !in_single) {
+            in_double = !in_double;
         }
-        if (!in_quotes && rest[i] == '>') {
+        if (!in_single && !in_double && rest[i] == '>') {
             message = rest.substr(0, i);
             redir = rest.substr(i);
             break;
@@ -232,7 +246,18 @@ vector<char *> buildArgv(vector<string> &tokens) {
 }
 
 bool hasPipes(const string &input) {
-    return input.find('|') != string::npos;
+    bool in_single = false;
+    bool in_double = false;
+    for (char c : input) {
+        if (c == '\'' && !in_double) {
+            in_single = !in_single;
+        } else if (c == '"' && !in_single) {
+            in_double = !in_double;
+        } else if (!in_single && !in_double && c == '|') {
+            return true;
+        }
+    }
+    return false;
 }
 
 void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bool background,
@@ -296,6 +321,9 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
             }
         } else {
             executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, context, count);
+            cout.flush();
+            cerr.flush();
+            fflush(nullptr);
         }
         _exit(EXIT_SUCCESS);
 
@@ -318,11 +346,9 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
 
 
 
-void handleRedirectionswithPipe(const vector<string> &command, bool piped, bool background,
+void handleRedirectionswithPipe(const vector<string> &command,
                           DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir,
                           ShellContext &context) {
-    int shell_in = dup(0);
-    int shell_out = dup(1);
 
     int file_descriptor;
     vector<string> cleaned;
@@ -337,7 +363,7 @@ void handleRedirectionswithPipe(const vector<string> &command, bool piped, bool 
             if (token == ">") {
                 file_descriptor = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
             } else if (token == ">>") {
-                file_descriptor = open(filename.c_str(), O_WRONLY | O_APPEND, 0644);
+                file_descriptor = open(filename.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
             } else {
                 file_descriptor = open(filename.c_str(), O_RDONLY);
             }
@@ -369,6 +395,9 @@ void handleRedirectionswithPipe(const vector<string> &command, bool piped, bool 
     }
     if (isMyCommand(com[0]) != -1) {
         executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, context, count);
+        cout.flush();
+        cerr.flush();
+        fflush(nullptr);
         _exit(EXIT_SUCCESS);
     }
     if (execvp(com[0], com) == -1) {
@@ -402,7 +431,7 @@ bool stripBackgroundToken(vector<string> &tokens) {
 
 void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, string curr_directory, string prev_directory,
                         string home_dir, ShellContext &context) {
-    for (int i = 0; i < statements.size(); i++) {
+    for (size_t i = 0; i < statements.size(); i++) {
         add_history(context.historyStore, const_cast<char *>(statements[i].c_str()));
         vector<string> piped_clear_statements = splitByDelimiter(statements[i], '|');
         bool pipeline_background = false;
@@ -415,19 +444,19 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
         int fd[2];
         pid_t pgid = -1;
 
-        for (int j = 0; j < piped_clear_statements.size(); ++j) {
+        for (size_t j = 0; j < piped_clear_statements.size(); ++j) {
             vector<string> tokenized = tokenizeLine(piped_clear_statements[j]);
             if (tokenized.empty()) {
                 continue;
             }
-            if (j == static_cast<int>(piped_clear_statements.size()) - 1 && pipeline_background) {
+            if (j + 1 == piped_clear_statements.size() && pipeline_background) {
                 stripBackgroundToken(tokenized);
                 if (tokenized.empty()) {
                     continue;
                 }
             }
 
-            if (j < piped_clear_statements.size() - 1) {
+            if (j + 1 < piped_clear_statements.size()) {
                 if (pipe(fd) == -1) {
                     perror("pipe failed");
                     exit(EXIT_FAILURE);
@@ -449,11 +478,11 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
                     dup2(in, 0);
                     close(in);
                 }
-                if (j < piped_clear_statements.size() - 1) {
+                if (j + 1 < piped_clear_statements.size()) {
                     dup2(fd[1], 1);
                 }
                 close(fd[0]);
-                handleRedirectionswithPipe(tokenized, true, false, curr, prev, curr_directory, prev_directory, home_dir, context);
+                handleRedirectionswithPipe(tokenized, curr, prev, curr_directory, prev_directory, home_dir, context);
             } else {
                 if (pgid == -1) {
                     pgid = pid;
@@ -492,7 +521,6 @@ int main() {
 
     DIR *curr = opendir(".");
     DIR *prev = curr;
-    DIR *home = curr;
     history_initiate(shellContext.historyStore, home_dir);
     do {
         string input = readInputLine();
@@ -503,7 +531,7 @@ int main() {
         cout<<username<<"@"<<system_name<<":"<<print_dir<<"> ";
         // input already captured
         vector<string> statements = splitByDelimiter(input, ';');
-        for (int i = 0; i < statements.size(); i++) {
+        for (size_t i = 0; i < statements.size(); i++) {
             if (hasPipes(statements[i])) {
                 vector<string> single_statement;
                 single_statement.push_back(statements[i]);

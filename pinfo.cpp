@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -20,30 +21,37 @@ using namespace std;
 
 void parseProc(int pid) {
     char path[40];
-    string proc = "/proc/";
-    string stat = "stat";
-
-    //string ppath = proc+to_string(pid)+stat;
-    snprintf(path, 40, "/proc/%ld/stat", pid);
-    const string filePath = path, line;
-    FILE *file = fopen(path, "r");
-    if (!file) {
-        cerr << "Failed to open file: " << filePath << endl;
+    snprintf(path, 40, "/proc/%d/stat", pid);
+    ifstream file(path);
+    if (!file.is_open()) {
+        cerr << "Failed to open file: " << path << endl;
         return;
     }
 
-    char state;
-    char useless[100] = {0};
-    int v_size = 0;
-
-    fscanf(file,"%d %s %c", &pid, useless, &state);
-    int dummy;
-    for(int i = 4 ; i < 23; i++) {
-        fscanf(file,"%d", &dummy);
+    string line;
+    if (!getline(file, line)) {
+        cerr << "Failed to read file: " << path << endl;
+        return;
     }
-    fscanf(file,"%d", &v_size);
 
-    int console_pid = tcgetpgrp(STDIN_FILENO);
+    size_t open_paren = line.find('(');
+    size_t close_paren = line.rfind(')');
+    if (open_paren == string::npos || close_paren == string::npos || close_paren <= open_paren) {
+        cerr << "Malformed stat format: " << path << endl;
+        return;
+    }
+
+    string after = line.substr(close_paren + 2);
+    istringstream iss(after);
+    char state = '?';
+    long v_size = 0;
+    iss >> state;
+    long dummy = 0;
+    for (int i = 0; i < 20; i++) {
+        iss >> dummy;
+    }
+    iss >> v_size;
+
     int pidpid = getpgid(pid);
 
     string t ;
@@ -69,7 +77,11 @@ void getPInfor(int pid) {
     string proc = "/proc/";
     string pidPath = proc+to_string(pid)+exe;
 
-    readlink(pidPath.c_str(), path, 1024); // execcutaable pathm
-    string line = path;
-    cout<<"Executable Path: "<<line<<"\n";
+    ssize_t len = readlink(pidPath.c_str(), path, sizeof(path) - 1);
+    if (len == -1) {
+        perror("readlink");
+        return;
+    }
+    path[len] = '\0';
+    cout<<"Executable Path: "<<path<<"\n";
 }

@@ -68,6 +68,7 @@ void executeCommand(int index,
             case 1: {
                 string temp = args[1];
                 echo(temp);
+                cout << "\n";
             }   break;
 
             case 2: pwd();

@@ -1,6 +1,6 @@
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -Wall -Wextra -std=c++11
+CXXFLAGS = -Wall -Wextra -std=c++17
 
 # Source files and executable name
 SRCS = main.cpp cd.cpp commandCentre.cpp echos.cpp getInfo.cpp history.cpp ls.cpp pinfo.cpp search.cpp

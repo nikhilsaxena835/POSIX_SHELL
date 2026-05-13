@@ -1,0 +1,53 @@
+Basic build and smoke tests
+
+1) Build
+- make clean && make
+
+2) Core builtins
+- pwd
+- cd /
+- pwd
+- cd ~
+- pwd
+- cd -
+- pwd
+
+3) Echo and piping
+- echo alpha
+- echo alpha | tr a-z A-Z
+
+4) Redirection
+- echo beta > /tmp/nshell_test.txt
+- cat /tmp/nshell_test.txt
+- echo gamma >> /tmp/nshell_test.txt
+- cat /tmp/nshell_test.txt
+- cat < /tmp/nshell_test.txt | wc -c
+
+5) ls variants
+- ls
+- ls -a
+- ls -l
+- ls | wc -l
+- ls -a | wc -l
+- ls -l | wc -l
+
+6) Pipelines
+- ls -l | head -n 2
+- cat /etc/hostname | wc -c
+
+7) Search (run from repo directory)
+- search Makefile
+- search does_not_exist
+
+8) pinfo
+- pinfo
+
+9) history
+- history 5
+
+10) Background job
+- sleep 1 &
+- ps -p $$ | head -n 1
+
+11) Exit
+- exit
