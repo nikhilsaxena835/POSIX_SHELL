@@ -71,29 +71,15 @@ void send_signal(){
 void handlePendingSignals() {
     if (sigint_received) {
         sigint_received = 0;
-        if (shellContext.foregroundPID > 0 && shellContext.foreground) {
-            kill(-shellContext.foregroundPID, SIGINT);
-        } else {
-            cout << "No foreground job to interrupt";
-        }
+        shellContext.jobManager.interruptForeground();
     }
     if (sigtstp_received) {
         sigtstp_received = 0;
-        if (shellContext.foregroundPID > 0 && shellContext.foreground) {
-            setpgid(shellContext.foregroundPID, shellContext.foregroundPID);
-            cout << "Foreground job suspended\n";
-            kill(-shellContext.foregroundPID, SIGSTOP);
-            shellContext.foregroundPID = -1;
-            shellContext.foreground = false;
-        } else {
-            cout << "No foreground job to suspend";
-        }
+        shellContext.jobManager.suspendForeground();
     }
     if (sigchld_received) {
         sigchld_received = 0;
-        int status = 0;
-        while (waitpid(-1, &status, WNOHANG) > 0) {
-        }
+        shellContext.jobManager.reapChildren();
     }
 }
 
@@ -262,14 +248,11 @@ bool hasPipes(const string &input) {
 }
 
 void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bool background,
-                        DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir,
                         ShellContext &context) {
-    (void)home_dir;
     int shell_in = dup(0);
     int shell_out = dup(1);
 
     int pid = fork();
-    context.foregroundPID = pid;
     if (pid < 0)
         perror("fork");
 
@@ -321,7 +304,7 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
                 _exit(EXIT_FAILURE);
             }
         } else {
-            ExecContext exec{cleaned, &curr, &prev, &currD, &prevD};
+            ExecContext exec{cleaned};
             cmd->execute(context, exec);
             cout.flush();
             cerr.flush();
@@ -332,12 +315,10 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
     } else {
         setpgid(pid, pid);
         if (!background) {
-            context.foregroundPID = pid;
-            context.foreground = true;
-            waitpid(pid, NULL, WUNTRACED | WCONTINUED);
+            context.jobManager.startForeground(pid);
+            context.jobManager.waitForForeground();
         } else {
-            context.foreground = false;
-            cout<<"PID : "<<pid<<endl;
+            context.jobManager.startBackground(pid);
         }
     }
     dup2(shell_in, 0);
@@ -349,10 +330,7 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
 
 
 void handleRedirectionswithPipe(const vector<string> &command,
-                          DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir,
                           ShellContext &context) {
-    (void)home_dir;
-
     int file_descriptor;
     vector<string> cleaned;
     for (size_t index = 0; index < command.size(); ++index) {
@@ -395,7 +373,7 @@ void handleRedirectionswithPipe(const vector<string> &command,
     }
     ICommand* cmd = commandRegistry.lookup(cleaned[0]);
     if (cmd) {
-        ExecContext exec{cleaned, &curr, &prev, &currD, &prevD};
+        ExecContext exec{cleaned};
         cmd->execute(context, exec);
         cout.flush();
         cerr.flush();
@@ -432,8 +410,7 @@ bool stripBackgroundToken(vector<string> &tokens) {
     return false;
 }
 
-void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, string curr_directory, string prev_directory,
-                        string home_dir, ShellContext &context) {
+void execute_statements(const vector<string> &statements, ShellContext &context) {
     for (size_t i = 0; i < statements.size(); i++) {
         add_history(context.historyStore, const_cast<char *>(statements[i].c_str()));
         vector<string> piped_clear_statements = splitByDelimiter(statements[i], '|');
@@ -485,25 +462,21 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
                     dup2(fd[1], 1);
                 }
                 close(fd[0]);
-                handleRedirectionswithPipe(tokenized, curr, prev, curr_directory, prev_directory, home_dir, context);
+                handleRedirectionswithPipe(tokenized, context);
             } else {
                 if (pgid == -1) {
                     pgid = pid;
                 }
                 setpgid(pid, pgid);
                 if (!background) {
-                    context.foregroundPID = pgid;
-                    context.foreground = true;
+                    context.jobManager.startForeground(pgid);
                 } else {
-                    context.foreground = false;
+                    context.jobManager.startBackground(pid);
                 }
                 close(fd[1]);
                 in = fd[0];
                 if(!background) {
-                    waitpid(pid, NULL, WUNTRACED);
-                }
-                else {
-                    cout<<"PID :"<<pid;
+                    context.jobManager.waitForPid(pid);
                 }
             }
         }
@@ -515,31 +488,30 @@ int main() {
     string system_name, home_dir, username;
     get_name(system_name, home_dir, username);
 
+    // Initialize the shell façade
+    shellContext.systemName = system_name;
+    shellContext.username   = username;
+    shellContext.homeDir    = home_dir;
+    shellContext.currDir    = home_dir;
+    shellContext.prevDir    = home_dir;
+    shellContext.currDirHandle = opendir(".");
+    shellContext.prevDirHandle = shellContext.currDirHandle;
+
     send_signal();
     commandRegistry.registerDefaults();
+    history_initiate(shellContext.historyStore, shellContext.homeDir);
 
-    string print_dir;
-    string curr_directory = home_dir;
-    string prev_directory = home_dir;
-    shellContext.homeDir = home_dir;
-
-    DIR *curr = opendir(".");
-    DIR *prev = curr;
-    history_initiate(shellContext.historyStore, home_dir);
     do {
         string input = readInputLine();
         handlePendingSignals();
-        if (curr_directory == home_dir) {
-            print_dir = '~';
-        }
-        cout<<username<<"@"<<system_name<<":"<<print_dir<<"> ";
+        cout << shellContext.prompt();
         // input already captured
         vector<string> statements = splitByDelimiter(input, ';');
         for (size_t i = 0; i < statements.size(); i++) {
             if (hasPipes(statements[i])) {
                 vector<string> single_statement;
                 single_statement.push_back(statements[i]);
-                execute_statements(single_statement, curr, prev, curr_directory, prev_directory, home_dir, shellContext);
+                execute_statements(single_statement, shellContext);
                 continue;
             }
 
@@ -558,7 +530,7 @@ int main() {
                 if (tokenized[0] == "pinfo" && tokenized.size() < 2) {
                     tokenized.push_back("0");
                 }
-                ExecContext exec{tokenized, &curr, &prev, &curr_directory, &prev_directory};
+                ExecContext exec{tokenized};
                 cmd->execute(shellContext, exec);
                 continue;
             }
@@ -567,16 +539,9 @@ int main() {
             if (tokenized.empty()) {
                 continue;
             }
-            handleRedirectionswithoutPipe(tokenized, false, background,
-                               curr, prev, curr_directory, prev_directory, home_dir, shellContext);
+            handleRedirectionswithoutPipe(tokenized, false, background, shellContext);
         }
 
-        // For CD
-        print_dir = curr_directory;
-        if (print_dir.find(home_dir) == 0 && print_dir.length() != home_dir.length()) {
-            string temp = print_dir.substr(home_dir.length(), print_dir.length());
-            print_dir = "~" + temp;
-        }
         printf("\n");
     } while (true);
     return 0;

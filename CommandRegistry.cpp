@@ -36,15 +36,15 @@ public:
         }
         int x;
         if (count == 2) {
-            x = changeDirectory(exec.args[1], *exec.curr, *exec.prev,
-                                *exec.currDir, *exec.prevDir, ctx.homeDir);
+            x = changeDirectory(exec.args[1], ctx.currDirHandle, ctx.prevDirHandle,
+                                ctx.currDir, ctx.prevDir, ctx.homeDir);
         } else {
             x = 0;
         }
         if (x == 0) {
-            string temp = *exec.currDir;
-            *exec.currDir = ctx.homeDir;
-            *exec.prevDir = temp;
+            string temp = ctx.currDir;
+            ctx.currDir = ctx.homeDir;
+            ctx.prevDir = temp;
             chdir(ctx.homeDir.c_str());
         }
         if (x == 1 || x == -1) {

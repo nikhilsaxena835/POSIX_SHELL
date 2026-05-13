@@ -1,16 +1,13 @@
 #ifndef EXECCONTEXT_H
 #define EXECCONTEXT_H
 
-#include <dirent.h>
 #include <string>
 #include <vector>
 
+// Per-command execution context: just the command arguments.
+// Directory/environment state is accessed via ShellContext.
 struct ExecContext {
     std::vector<std::string> args;
-    DIR** curr;
-    DIR** prev;
-    std::string* currDir;
-    std::string* prevDir;
 
     int argc() const { return static_cast<int>(args.size()); }
 };
