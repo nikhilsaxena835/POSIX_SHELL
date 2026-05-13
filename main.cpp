@@ -24,7 +24,6 @@ using namespace std;
 
 string zero = " \t\r\n\a";
 char *delim = (char *)zero.c_str();
-constexpr int buffer_size = 1024;
 int foregroundPID = -1;
 bool foreground = false;
 vector<string> historyStore;
@@ -80,35 +79,12 @@ void send_signal(){
 */
 }
 
-void DHandler() {
-    errno = 0;
-    char *buffer = NULL;
-    size_t bufsize = 0;
-    ssize_t characters;
-    characters = getline(&buffer, &bufsize, stdin);
-    if (characters == -1 && errno == 0)
-    {
+string readInputLine() {
+    string line;
+    if (!getline(cin, line)) {
         exit(1);
     }
-}
-
-void getInputCommand(char *buffer) {
-    int buffer_index = 0;
-    char c;
-    do {
-        c = (char) getchar();
-
-        if (c == EOF || c == '\n') {
-            if (c == EOF) {
-                DHandler();
-            }
-            buffer[buffer_index] = '\0';
-            return;
-        } else {
-            buffer[buffer_index] = c;
-        }
-        buffer_index++;
-    } while (true);
+    return line;
 }
 
 vector<char *> tokenize(char *str, char *delim) {
@@ -419,16 +395,19 @@ int main() {
     DIR *home = curr;
     history_initiate(historyStore, home_dir);
     do {
-        char *buffer = (char *) malloc(sizeof(char) * buffer_size);
+        string input = readInputLine();
+        vector<char> buffer(input.begin(), input.end());
+        buffer.push_back('\0');
+        char *buffer_ptr = buffer.data();
         if (curr_directory == home_dir) {
             print_dir = '~';
         }
         cout<<username<<"@"<<system_name<<":"<<print_dir<<"> ";
-        getInputCommand(buffer);
+        // input already captured
         vector<char *> statements;
 
-        checkSemicolons(buffer, statements);
-        bool isPiped = hasPipes(buffer);
+        checkSemicolons(buffer_ptr, statements);
+        bool isPiped = hasPipes(buffer_ptr);
 
         if (isPiped)
             execute_statements(statements, curr, prev, curr_directory, prev_directory, home_dir);
@@ -473,7 +452,6 @@ int main() {
             string temp = print_dir.substr(home_dir.length(), print_dir.length());
             print_dir = "~" + temp;
         }
-        free(buffer);
         printf("\n");
     } while (true);
     return 0;
