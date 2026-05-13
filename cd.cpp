@@ -22,63 +22,61 @@ using namespace std;
  */
 int changeDirectory(const string& cmd, DIR *curr, DIR *prev, string &currD, string &prevD, const string& home_dir) {
     if(cmd == "~") {
-        return 0;
-    }
-
-    else if(cmd == ".") {
-        return 1;
-    }
-
-    else if(cmd == "..") {
-        if(currD == "/home") {
+        if (chdir(home_dir.c_str()) != 0) {
+            perror("cd");
             return -1;
         }
-        int last = currD.find_last_of("/");
-        string parent = currD.substr(0, last);
         prevD = currD;
-        currD = parent;
-        chdir(parent.c_str());
+        currD = home_dir;
         return 1;
     }
 
-    else if(cmd == "-") {
+    if(cmd == ".") {
+        return 1;
+    }
+
+    if(cmd == "..") {
+        int last = currD.find_last_of("/");
+        string parent = (last == 0) ? string("/") : currD.substr(0, last);
+        if (chdir(parent.c_str()) != 0) {
+            perror("cd");
+            return -1;
+        }
+        prevD = currD;
+        currD = parent;
+        return 1;
+    }
+
+    if(cmd == "-") {
         string temp = currD;
+        if (chdir(prevD.c_str()) != 0) {
+            perror("cd");
+            return -1;
+        }
         currD = prevD;
         prevD = temp;
-        chdir(prevD.c_str());
         char buf[1024];
         getcwd(buf, sizeof(buf));
         cout<<buf<<endl;
         return 1;
     }
-    else {
-        //If cd to some other path. If / not given, add it. If path given relative to ~, append it as such.
-        //
-        string temp = cmd;
-        if(temp[0] != '/') {
-            temp = "/"+temp;
-        }
 
-        if(strstr(temp.c_str(), "/~") != NULL) {
-            temp = home_dir+temp;
+    string target = cmd;
+    if (!target.empty() && target[0] == '~') {
+        if (target.size() == 1) {
+            target = home_dir;
+        } else if (target[1] == '/') {
+            target = home_dir + target.substr(1);
         }
-        else if(strstr(temp.c_str(), "/home") != NULL) {
-            int uid = geteuid();
-            passwd *user;
-            user = getpwuid(uid);
-            string username = user->pw_name;
-            temp = temp.substr(6,temp.length());
-            temp = "/home/"+username+"/"+temp;
-        }
-        else {
-            temp = currD+temp;
-        }
-        chdir(temp.c_str());
-        prevD = currD;
-        currD = temp;
-
-        return 1;
+    } else if (!target.empty() && target[0] != '/') {
+        target = currD + "/" + target;
     }
 
+    if (chdir(target.c_str()) != 0) {
+        perror("cd");
+        return -1;
+    }
+    prevD = currD;
+    currD = target;
+    return 1;
 }
-

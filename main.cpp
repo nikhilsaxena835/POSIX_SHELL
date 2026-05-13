@@ -319,7 +319,8 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
 
 
 void handleRedirectionswithPipe(const vector<string> &command, bool piped, bool background,
-                          DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir) {
+                          DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir,
+                          ShellContext &context) {
     int shell_in = dup(0);
     int shell_out = dup(1);
 
@@ -362,6 +363,11 @@ void handleRedirectionswithPipe(const vector<string> &command, bool piped, bool 
 
     vector<char *> argv = buildArgv(cleaned);
     char **com = argv.data();
+    int count = cleaned.size();
+    if (isMyCommand(com[0]) != -1) {
+        executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, context, count);
+        _exit(EXIT_SUCCESS);
+    }
     if (execvp(com[0], com) == -1) {
         perror("execvp");
         _exit(EXIT_FAILURE);
@@ -385,11 +391,6 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
             vector<string> tokenized = tokenizeLine(piped_clear_statements[j]);
             if (tokenized.empty()) {
                 continue;
-            }
-            if(tokenized[0] == "cd") {
-                const string &path = tokenized.size() > 1 ? tokenized[1] : string("~");
-                changeDirectory(path, curr, prev, curr_directory, prev_directory, home_dir);
-                return  ;
             }
 
             if (j < piped_clear_statements.size() - 1) {
@@ -416,7 +417,7 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
                     dup2(fd[1], 1);
                 }
                 close(fd[0]);
-                handleRedirectionswithPipe(tokenized, true, false, curr, prev, curr_directory, prev_directory, home_dir);
+                handleRedirectionswithPipe(tokenized, true, false, curr, prev, curr_directory, prev_directory, home_dir, context);
             } else {
                 context.foreground = true;
                 close(fd[1]);
