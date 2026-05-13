@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <cctype>
 #include "pinfo.h"
 
 using namespace std;
@@ -101,88 +102,142 @@ string readInputLine() {
     return line;
 }
 
-vector<char *> tokenize(char *str, char *delim) {
-    string temp = str;
-    bool echo_flag = false;
-    vector<char *> tokens;
-    char *token = strtok(str, delim);
-    while (token != NULL) {
-        if (strcmp(token, "echo") == 0 && tokens.empty()) {
-            echo_flag = true;
-            tokens.push_back(token);
-            break;
+bool isAllWhitespace(const string &input) {
+    for (char c : input) {
+        if (!isspace(static_cast<unsigned char>(c))) {
+            return false;
         }
-        if (strcmp(token, "exit") == 0 && tokens.empty()) {
-            exit(EXIT_SUCCESS);
-        }
-        tokens.push_back(token);
-        token = strtok(NULL, delim);
     }
-    if (echo_flag) {
-        int x = temp.find_last_of(">");
-        if(x!=temp.npos) {
-            string t = temp;
-            temp = temp.substr(5, x - 5); //get echo string
-            if(isEchoQuote(temp) == false) {
-                temp = removeWhiteSpace(temp);
-            }
-            char *temp2 = strdup(temp.c_str());
-            tokens.push_back(temp2); //push echo string as single token
+    return true;
+}
 
-            t = t.substr(x, t.length()); // get output file string
-            char *t_copy = strdup(t.c_str());
-
-            char *token = strtok(t_copy, delim); // push everything else as seperate tokens
-            while (token != nullptr) {
-                tokens.push_back(strdup(token));
-                token = strtok(nullptr, delim);
-            }
+vector<string> splitByDelimiter(const string &input, char delimiter) {
+    vector<string> parts;
+    string current;
+    bool in_quotes = false;
+    for (char c : input) {
+        if (c == '"') {
+            in_quotes = !in_quotes;
         }
-        else {
-
-            temp = temp.substr(5);
-            if(isEchoQuote(temp) == false) {
-                temp = removeWhiteSpace(temp);
+        if (!in_quotes && c == delimiter) {
+            if (!isAllWhitespace(current)) {
+                parts.push_back(current);
             }
-            char *temp2 = strdup(temp.c_str());
-            tokens.push_back(temp2);
+            current.clear();
+        } else {
+            current.push_back(c);
         }
+    }
+    if (!isAllWhitespace(current)) {
+        parts.push_back(current);
+    }
+    return parts;
+}
+
+vector<string> splitSimple(const string &input) {
+    vector<string> tokens;
+    string current;
+    for (char c : input) {
+        if (isspace(static_cast<unsigned char>(c))) {
+            if (!current.empty()) {
+                tokens.push_back(current);
+                current.clear();
+            }
+        } else {
+            current.push_back(c);
+        }
+    }
+    if (!current.empty()) {
+        tokens.push_back(current);
     }
     return tokens;
 }
 
-void seperatePipes(char *str, vector<char *> &piped_statements) {
-    char *token = strtok(str, "|");
-    while (token != NULL) {
-        piped_statements.push_back(token);
-        token = strtok(NULL, "|");
-    }
-}
-
-bool hasPipes(char *input) {
-    for (int i = 0; i < strlen(input); i++) {
-        if (input[i] == '|') {
-            return true;
+vector<string> splitWithQuotes(const string &input) {
+    vector<string> tokens;
+    string current;
+    bool in_quotes = false;
+    for (char c : input) {
+        if (c == '"') {
+            in_quotes = !in_quotes;
+            continue;
+        }
+        if (!in_quotes && isspace(static_cast<unsigned char>(c))) {
+            if (!current.empty()) {
+                tokens.push_back(current);
+                current.clear();
+            }
+        } else {
+            current.push_back(c);
         }
     }
-    return false;
-}
-
-
-void checkSemicolons(char *str, vector<char *> &statements) {
-    vector<char *> tokens;
-    char *token = strtok(str, ";");
-    while (token != NULL) {
-        statements.push_back(token);
-        token = strtok(NULL, ";");
+    if (!current.empty()) {
+        tokens.push_back(current);
     }
+    return tokens;
 }
 
-void handleRedirectionswithoutPipe(vector<char *> command, bool piped, bool background,
+vector<string> tokenizeLine(const string &input) {
+    size_t start = input.find_first_not_of(" \t\r\n\a");
+    if (start == string::npos) {
+        return {};
+    }
+    bool is_echo = input.compare(start, 4, "echo") == 0 &&
+                   (start + 4 == input.size() || isspace(static_cast<unsigned char>(input[start + 4])));
+    if (!is_echo) {
+        return splitWithQuotes(input);
+    }
+
+    size_t rest_start = start + 4;
+    if (rest_start < input.size() && isspace(static_cast<unsigned char>(input[rest_start]))) {
+        rest_start++;
+    }
+    string rest = input.substr(rest_start);
+    string message = rest;
+    string redir;
+    bool in_quotes = false;
+    for (size_t i = 0; i < rest.size(); ++i) {
+        if (rest[i] == '"') {
+            in_quotes = !in_quotes;
+        }
+        if (!in_quotes && rest[i] == '>') {
+            message = rest.substr(0, i);
+            redir = rest.substr(i);
+            break;
+        }
+    }
+
+    if (!isEchoQuote(message)) {
+        message = removeWhiteSpace(message);
+    }
+
+    vector<string> tokens;
+    tokens.push_back("echo");
+    tokens.push_back(message);
+
+    if (!redir.empty()) {
+        vector<string> redir_tokens = splitSimple(redir);
+        tokens.insert(tokens.end(), redir_tokens.begin(), redir_tokens.end());
+    }
+    return tokens;
+}
+
+vector<char *> buildArgv(vector<string> &tokens) {
+    vector<char *> argv;
+    argv.reserve(tokens.size() + 1);
+    for (string &token : tokens) {
+        argv.push_back(const_cast<char *>(token.c_str()));
+    }
+    argv.push_back(nullptr);
+    return argv;
+}
+
+bool hasPipes(const string &input) {
+    return input.find('|') != string::npos;
+}
+
+void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bool background,
                         DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir) {
-
-    bool nullFlag = false;
-
     int shell_in = dup(0);
     int shell_out = dup(1);
 
@@ -196,55 +251,54 @@ void handleRedirectionswithoutPipe(vector<char *> command, bool piped, bool back
         setpgid(pid,getpid());
 
         int file_descriptor;
-        for (int index = 0; index < command.size(); index++) {
-            char *token = command[index];
-            if ((strcmp(token, ">") == 0 || strcmp(token, ">>") == 0) && command[index + 1] != nullptr) {
-                if (strcmp(token, ">") == 0)
-                    file_descriptor = open(command[index + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                else {
-                    file_descriptor = open(command[index + 1], O_WRONLY | O_APPEND, 0644);
+        vector<string> cleaned;
+        for (size_t index = 0; index < command.size(); ++index) {
+            const string &token = command[index];
+            if (token == ">" || token == ">>" || token == "<") {
+                if (index + 1 >= command.size()) {
+                    cerr << "Redirection error: missing file" << endl;
+                    _exit(EXIT_FAILURE);
+                }
+                const string &filename = command[index + 1];
+                if (token == ">") {
+                    file_descriptor = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                } else if (token == ">>") {
+                    file_descriptor = open(filename.c_str(), O_WRONLY | O_APPEND, 0644);
+                } else {
+                    file_descriptor = open(filename.c_str(), O_RDONLY);
                 }
                 if (file_descriptor == -1) {
-                    perror(command[index + 1]);
-                    exit(EXIT_FAILURE);
+                    perror(filename.c_str());
+                    _exit(EXIT_FAILURE);
                 }
-                if (dup2(file_descriptor, STDOUT_FILENO) == -1) perror("dup2");
-                if (close(file_descriptor) == -1) perror("close");
-                command[index] = nullptr;
-                nullFlag = true;
-            } else if (strcmp(command[index], "<") == 0 && command[index + 1]) {
-                file_descriptor = open(command[index + 1], O_RDONLY);
-                if (file_descriptor == -1) {
-                    perror(command[index + 1]);
-                    exit(EXIT_FAILURE);
+                if (token == "<") {
+                    if (dup2(file_descriptor, STDIN_FILENO) == -1) perror("dup2");
+                } else {
+                    if (dup2(file_descriptor, STDOUT_FILENO) == -1) perror("dup2");
                 }
-                if (dup2(file_descriptor, STDIN_FILENO) == -1) perror("dup2");
                 if (close(file_descriptor) == -1) perror("close");
-                command[index] = nullptr;
-                nullFlag = true;
+                ++index;
+            } else {
+                cleaned.push_back(token);
             }
         }
-        int count = 0;
-        if (nullFlag) {
-            while (command[count] != nullptr) count++;
-        } else {
-            count = command.size();
+
+        if (cleaned.empty()) {
+            _exit(EXIT_FAILURE);
         }
-        char *com[count + 1];
-        int i = 0;
-        while (i != count) {
-            com[i] = command[i];
-            i++;
-        }
-        com[i] = NULL;
+
+        vector<char *> argv = buildArgv(cleaned);
+        char **com = argv.data();
+        int count = cleaned.size();
         if (piped == 1 || isMyCommand(com[0]) == -1) {
             if (execvp(com[0], com) == -1) {
                 perror("execvp");
+                _exit(EXIT_FAILURE);
             }
         } else {
             executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, historyStore, count);
         }
-        exit(EXIT_SUCCESS);
+        _exit(EXIT_SUCCESS);
 
     } else {
         setpgid(foregroundPID, foregroundPID);
@@ -264,91 +318,77 @@ void handleRedirectionswithoutPipe(vector<char *> command, bool piped, bool back
 
 
 
-void handleRedirectionswithPipe(vector<char *> command, bool piped, bool background,
-                         DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir) {
-    bool nullFlag = false;
-
+void handleRedirectionswithPipe(const vector<string> &command, bool piped, bool background,
+                          DIR *curr, DIR *prev, string &currD, string &prevD, const string &home_dir) {
     int shell_in = dup(0);
     int shell_out = dup(1);
 
     int file_descriptor;
-
-    for (int index = 0; index < command.size(); index++) {
-        char *token = command[index];
-        if ((strcmp(token, ">") == 0 || strcmp(token, ">>") == 0) && command[index + 1] != nullptr) {
-            if (strcmp(token, ">") == 0)
-                file_descriptor = open(command[index + 1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            else {
-                file_descriptor = open(command[index + 1], O_WRONLY | O_APPEND, 0644);
+    vector<string> cleaned;
+    for (size_t index = 0; index < command.size(); ++index) {
+        const string &token = command[index];
+        if (token == ">" || token == ">>" || token == "<") {
+            if (index + 1 >= command.size()) {
+                cerr << "Redirection error: missing file" << endl;
+                _exit(EXIT_FAILURE);
+            }
+            const string &filename = command[index + 1];
+            if (token == ">") {
+                file_descriptor = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            } else if (token == ">>") {
+                file_descriptor = open(filename.c_str(), O_WRONLY | O_APPEND, 0644);
+            } else {
+                file_descriptor = open(filename.c_str(), O_RDONLY);
             }
             if (file_descriptor == -1) {
-                perror(command[index + 1]);
-                exit(EXIT_FAILURE);
+                perror(filename.c_str());
+                _exit(EXIT_FAILURE);
             }
-            if (dup2(file_descriptor, STDOUT_FILENO) == -1) perror("dup2");
-            if (close(file_descriptor) == -1) perror("close");
-            command[index] = nullptr;
-            nullFlag = true;
-        } else if (strcmp(command[index], "<") == 0 && command[index + 1]) {
-            file_descriptor = open(command[index + 1], O_RDONLY);
-            if (file_descriptor == -1) {
-                perror(command[index + 1]);
-                exit(EXIT_FAILURE);
+            if (token == "<") {
+                if (dup2(file_descriptor, STDIN_FILENO) == -1) perror("dup2");
+            } else {
+                if (dup2(file_descriptor, STDOUT_FILENO) == -1) perror("dup2");
             }
-            if (dup2(file_descriptor, STDIN_FILENO) == -1) perror("dup2");
             if (close(file_descriptor) == -1) perror("close");
-            command[index] = nullptr;
-            nullFlag = true;
+            ++index;
+        } else {
+            cleaned.push_back(token);
         }
     }
 
-    int count = 0;
-    if (nullFlag) {
-        while (command[count] != nullptr) count++;
-    } else {
-        count = command.size();
+    if (cleaned.empty()) {
+        _exit(EXIT_FAILURE);
     }
-    char *com[count + 1];
-    int i = 0;
-    while (i != count) {
-        com[i] = command[i];
-        i++;
-    }
-    com[i] = nullptr;
+
+    vector<char *> argv = buildArgv(cleaned);
+    char **com = argv.data();
     if (execvp(com[0], com) == -1) {
-            perror("execvp");
+        perror("execvp");
+        _exit(EXIT_FAILURE);
     }
-    dup2(shell_in, 0);
-    dup2(shell_out, 1);
-    close(shell_in);
-    close(shell_out);
-
-    //exit(EXIT_SUCCESS);
 }
 
-bool isBackground(const char *command) {
-    for(int i = 0; i < strlen(command); i++) {
-        if (command[i] == '&') {
-            return true;
-        }
-    }
-    return false;
+bool isBackground(const string &command) {
+    return command.find('&') != string::npos;
 }
 
-void execute_statements(vector<char *> statements, DIR *curr, DIR *prev, string curr_directory, string prev_directory,
+void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, string curr_directory, string prev_directory,
                         string home_dir) {
     for (int i = 0; i < statements.size(); i++) {
-        add_history(historyStore, statements[i]);
-        vector<char *> piped_clear_statements;
-        seperatePipes(statements[i], piped_clear_statements);
+        add_history(historyStore, const_cast<char *>(statements[i].c_str()));
+        vector<string> piped_clear_statements = splitByDelimiter(statements[i], '|');
 
         int in = 0;
         int fd[2];
 
         for (int j = 0; j < piped_clear_statements.size(); ++j) {
-            if(piped_clear_statements[j][0] == 'c' && piped_clear_statements[j][1] == 'd') {
-                vector<char *> tokenized = tokenize(piped_clear_statements[j], delim);
-                changeDirectory(tokenized[1], curr, prev, curr_directory, prev_directory, home_dir);
+            vector<string> tokenized = tokenizeLine(piped_clear_statements[j]);
+            if (tokenized.empty()) {
+                continue;
+            }
+            if(tokenized[0] == "cd") {
+                const string &path = tokenized.size() > 1 ? tokenized[1] : string("~");
+                changeDirectory(path, curr, prev, curr_directory, prev_directory, home_dir);
                 return  ;
             }
 
@@ -364,7 +404,6 @@ void execute_statements(vector<char *> statements, DIR *curr, DIR *prev, string 
                 perror("fork failed");
                 exit(EXIT_FAILURE);
             }
-            vector<char *> tokenized = tokenize(piped_clear_statements[j], delim);
             bool background = isBackground(tokenized[tokenized.size() - 1]);
             if (pid == 0) {
                 if (background) {setpgid(getpid(),getpid());}
@@ -411,54 +450,42 @@ int main() {
     do {
         string input = readInputLine();
         handlePendingSignals();
-        vector<char> buffer(input.begin(), input.end());
-        buffer.push_back('\0');
-        char *buffer_ptr = buffer.data();
         if (curr_directory == home_dir) {
             print_dir = '~';
         }
         cout<<username<<"@"<<system_name<<":"<<print_dir<<"> ";
         // input already captured
-        vector<char *> statements;
-
-        checkSemicolons(buffer_ptr, statements);
-        bool isPiped = hasPipes(buffer_ptr);
-
-        if (isPiped)
-            execute_statements(statements, curr, prev, curr_directory, prev_directory, home_dir);
-
-        else {
-            for (int i = 0; i < statements.size(); i++) {
-                add_history(historyStore, statements[i]);
-                vector<char *> tokenized = tokenize(statements[i], delim);
-                if(strcmp(tokenized[0], "pinfo") == 0) {
-                    if(tokenized[1] == NULL) {
-                        string zero = "0";
-                        tokenized[1] = (char *)zero.c_str();
-                    }
-                    getPInfor(atoi(tokenized[1]));
-                    continue;
-                }
-
-                if(strcmp(tokenized[0], "cd") == 0) {
-                    int count = 0;
-
-                    count = tokenized.size();
-                    char *com[count + 1];
-                    int i = 0;
-                    while (i != count) {
-                        com[i] = tokenized[i];
-                        i++;
-                    }
-                    com[i] = NULL;
-                    executeCommand(isMyCommand(com[0]), com[1], curr, prev, curr_directory, prev_directory, com, home_dir, historyStore, count);
-
-                    continue;
-                }
-                bool background = isBackground(tokenized[tokenized.size() - 1]);
-                handleRedirectionswithoutPipe(tokenized, false, background,
-                                   curr, prev, curr_directory, prev_directory, home_dir);
+        vector<string> statements = splitByDelimiter(input, ';');
+        for (int i = 0; i < statements.size(); i++) {
+            if (hasPipes(statements[i])) {
+                vector<string> single_statement;
+                single_statement.push_back(statements[i]);
+                execute_statements(single_statement, curr, prev, curr_directory, prev_directory, home_dir);
+                continue;
             }
+
+            add_history(historyStore, const_cast<char *>(statements[i].c_str()));
+            vector<string> tokenized = tokenizeLine(statements[i]);
+            if (tokenized.empty()) {
+                continue;
+            }
+            if(tokenized[0] == "pinfo") {
+                if(tokenized.size() < 2) {
+                    tokenized.push_back("0");
+                }
+                getPInfor(atoi(tokenized[1].c_str()));
+                continue;
+            }
+
+            if(tokenized[0] == "cd") {
+                vector<char *> com = buildArgv(tokenized);
+                int count = tokenized.size();
+                executeCommand(isMyCommand(com[0]), com[1], curr, prev, curr_directory, prev_directory, com.data(), home_dir, historyStore, count);
+                continue;
+            }
+            bool background = isBackground(tokenized[tokenized.size() - 1]);
+            handleRedirectionswithoutPipe(tokenized, false, background,
+                               curr, prev, curr_directory, prev_directory, home_dir);
         }
 
         // For CD
