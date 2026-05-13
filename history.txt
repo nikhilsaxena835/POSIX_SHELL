@@ -1,0 +1,14 @@
+pwd
+cd /
+pwd
+echo hello | tr a-z A-Z
+sleep 1 &
+history 3
+exit
+pwd
+cd /
+pwd
+echo hello | tr a-z A-Z
+sleep 1 &
+history 3
+exit

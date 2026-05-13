@@ -82,7 +82,7 @@ void add_history(vector<string> &q, char * command) {
     }
 }
 
-void print_history(vector<string> &q, int n) {
+void print_history(const vector<string> &q, int n) {
     if(n == 0) n = 10;
     int len = q.size();
     int start = (len > n) ? len - n : 0;

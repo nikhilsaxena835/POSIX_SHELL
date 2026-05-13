@@ -68,7 +68,7 @@ void handlePendingSignals() {
     if (sigint_received) {
         sigint_received = 0;
         if (shellContext.foregroundPID > 0 && shellContext.foreground) {
-            kill(shellContext.foregroundPID, SIGINT);
+            kill(-shellContext.foregroundPID, SIGINT);
         } else {
             cout << "No foreground job to interrupt";
         }
@@ -78,7 +78,7 @@ void handlePendingSignals() {
         if (shellContext.foregroundPID > 0 && shellContext.foreground) {
             setpgid(shellContext.foregroundPID, shellContext.foregroundPID);
             cout << "Foreground job suspended\n";
-            kill(shellContext.foregroundPID, SIGSTOP);
+            kill(-shellContext.foregroundPID, SIGSTOP);
             shellContext.foregroundPID = -1;
             shellContext.foreground = false;
         } else {
@@ -247,8 +247,7 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
         perror("fork");
 
     else if (pid == 0) {
-        if(background)
-        setpgid(pid,getpid());
+        setpgid(0, 0);
 
         int file_descriptor;
         vector<string> cleaned;
@@ -301,12 +300,13 @@ void handleRedirectionswithoutPipe(const vector<string> &command, bool piped, bo
         _exit(EXIT_SUCCESS);
 
     } else {
-        setpgid(context.foregroundPID, context.foregroundPID);
-        context.foregroundPID = pid;
-        context.foreground = true;
-        if (!background)
+        setpgid(pid, pid);
+        if (!background) {
+            context.foregroundPID = pid;
+            context.foreground = true;
             waitpid(pid, NULL, WUNTRACED | WCONTINUED);
-        else {
+        } else {
+            context.foreground = false;
             cout<<"PID : "<<pid<<endl;
         }
     }
@@ -364,6 +364,9 @@ void handleRedirectionswithPipe(const vector<string> &command, bool piped, bool 
     vector<char *> argv = buildArgv(cleaned);
     char **com = argv.data();
     int count = cleaned.size();
+    if (strcmp(com[0], "exit") == 0) {
+        _exit(EXIT_SUCCESS);
+    }
     if (isMyCommand(com[0]) != -1) {
         executeCommand(isMyCommand(com[0]), com[1], curr, prev, currD, prevD, com, home_dir, context, count);
         _exit(EXIT_SUCCESS);
@@ -378,19 +381,50 @@ bool isBackground(const string &command) {
     return command.find('&') != string::npos;
 }
 
+bool stripBackgroundToken(vector<string> &tokens) {
+    if (tokens.empty()) {
+        return false;
+    }
+    string &last = tokens.back();
+    if (last == "&") {
+        tokens.pop_back();
+        return true;
+    }
+    if (!last.empty() && last.back() == '&') {
+        last.pop_back();
+        if (last.empty()) {
+            tokens.pop_back();
+        }
+        return true;
+    }
+    return false;
+}
+
 void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, string curr_directory, string prev_directory,
                         string home_dir, ShellContext &context) {
     for (int i = 0; i < statements.size(); i++) {
         add_history(context.historyStore, const_cast<char *>(statements[i].c_str()));
         vector<string> piped_clear_statements = splitByDelimiter(statements[i], '|');
+        bool pipeline_background = false;
+        if (!piped_clear_statements.empty()) {
+            vector<string> last_tokens = tokenizeLine(piped_clear_statements.back());
+            pipeline_background = stripBackgroundToken(last_tokens);
+        }
 
         int in = 0;
         int fd[2];
+        pid_t pgid = -1;
 
         for (int j = 0; j < piped_clear_statements.size(); ++j) {
             vector<string> tokenized = tokenizeLine(piped_clear_statements[j]);
             if (tokenized.empty()) {
                 continue;
+            }
+            if (j == static_cast<int>(piped_clear_statements.size()) - 1 && pipeline_background) {
+                stripBackgroundToken(tokenized);
+                if (tokenized.empty()) {
+                    continue;
+                }
             }
 
             if (j < piped_clear_statements.size() - 1) {
@@ -400,14 +434,16 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
                 }
             }
             int pid  = fork();
-            context.foregroundPID = pid;
             if (pid == -1) {
                 perror("fork failed");
                 exit(EXIT_FAILURE);
             }
-            bool background = isBackground(tokenized[tokenized.size() - 1]);
+            bool background = pipeline_background;
             if (pid == 0) {
-                if (background) {setpgid(getpid(),getpid());}
+                if (pgid == -1) {
+                    pgid = getpid();
+                }
+                setpgid(0, pgid);
 
                 if (in != 0) {
                     dup2(in, 0);
@@ -419,7 +455,16 @@ void execute_statements(const vector<string> &statements, DIR *curr, DIR *prev, 
                 close(fd[0]);
                 handleRedirectionswithPipe(tokenized, true, false, curr, prev, curr_directory, prev_directory, home_dir, context);
             } else {
-                context.foreground = true;
+                if (pgid == -1) {
+                    pgid = pid;
+                }
+                setpgid(pid, pgid);
+                if (!background) {
+                    context.foregroundPID = pgid;
+                    context.foreground = true;
+                } else {
+                    context.foreground = false;
+                }
                 close(fd[1]);
                 in = fd[0];
                 if(!background) {
@@ -471,6 +516,9 @@ int main() {
             if (tokenized.empty()) {
                 continue;
             }
+            if(tokenized[0] == "exit") {
+                exit(EXIT_SUCCESS);
+            }
             if(tokenized[0] == "pinfo") {
                 if(tokenized.size() < 2) {
                     tokenized.push_back("0");
@@ -485,7 +533,10 @@ int main() {
                 executeCommand(isMyCommand(com[0]), com[1], curr, prev, curr_directory, prev_directory, com.data(), home_dir, shellContext, count);
                 continue;
             }
-            bool background = isBackground(tokenized[tokenized.size() - 1]);
+            bool background = stripBackgroundToken(tokenized);
+            if (tokenized.empty()) {
+                continue;
+            }
             handleRedirectionswithoutPipe(tokenized, false, background,
                                curr, prev, curr_directory, prev_directory, home_dir, shellContext);
         }

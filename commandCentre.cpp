@@ -35,7 +35,7 @@ int isMyCommand(const char * temp) {
 void executeCommand(int index,
     const char *newdir, DIR *curr, DIR *prev, string &currD, string &prevD,
     char** args, const string &home_dir,
-    ShellContext &context, int count){
+    const ShellContext &context, int count){
 
         int i = 0;
         while(args[i]!= NULL) i++;

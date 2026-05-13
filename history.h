@@ -9,6 +9,6 @@
 using namespace std;
 void history_initiate(vector<string> &q, string);
 void add_history(vector<string> &q, char *);
-void print_history(vector<string> &q, int n);
+void print_history(const vector<string> &q, int n);
 void save_history(vector<string> &q);
 #endif //HISTORY_H
