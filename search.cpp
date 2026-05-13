@@ -11,6 +11,10 @@
 #include <sys/stat.h>
 using namespace std;
 bool recursive_search(char * target) {
+    if (target == nullptr) {
+        printf("No\n");
+        return false;
+    }
     stack<string> s;
     char buf[256];
     getcwd(buf, 256);
@@ -19,11 +23,15 @@ bool recursive_search(char * target) {
     while(!s.empty()) {
         string p = s.top();s.pop();
         DIR *dirp = opendir(p.c_str());
+        if (dirp == nullptr) {
+            continue;
+        }
         struct dirent *entry;
         while ((entry = readdir(dirp)) != NULL) {
             char *temp = entry->d_name;
             if(strcmp(temp, target)==0) {
                 printf("Yes\n");
+                closedir(dirp);
                 return true;
             }
             struct stat sb;
@@ -41,6 +49,7 @@ bool recursive_search(char * target) {
 
 
         }
+        closedir(dirp);
     }
     printf("No\n");
     return false;
